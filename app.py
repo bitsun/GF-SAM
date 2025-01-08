@@ -50,16 +50,27 @@ def visualize_points_on_image(image, coords_xy, coords_labels):
     return image
         
 
-def process(ref_img, ref_mask, target_img):
-    ref_img = ref_img.convert('RGB')
-    target_img = target_img.convert('RGB')
-    ref_img_tensor, target_img_tensor = transform(ref_img), transform(target_img)
-    ref_mask_tensor = torch.tensor(np.array(ref_mask))
-    ref_mask_tensor = F.interpolate(ref_mask_tensor.unsqueeze(0).unsqueeze(0).float(), ref_img_tensor.size()[-2:], mode='nearest')
-
+def process(ref_img1, ref_mask1,ref_img2,ref_mask2, target_img):
+    if ref_img2 is None and ref_img2 is None:
+        ref_img_tensor, target_img_tensor = transform(ref_img1), transform(target_img)
+        ref_mask_tensor = torch.tensor(np.array(ref_mask1))
+        ref_mask_tensor = F.interpolate(ref_mask_tensor.unsqueeze(0).unsqueeze(0).float(), ref_img_tensor.size()[-2:], mode='nearest')
+        ref_img_tensor = ref_img_tensor.unsqueeze(0).unsqueeze(0)
+    else:
+        ref_img1 = ref_img1.convert('RGB')
+        ref_img2 = ref_img2.convert('RGB')
+        target_img = target_img.convert('RGB')
+        ref_img_tensor1,ref_img_tesnor2, target_img_tensor = transform(ref_img1),transform(ref_img2), transform(target_img)
+        ref_img_tensor = torch.cat([ref_img_tensor1.unsqueeze(0),ref_img_tesnor2.unsqueeze(0)],dim=0)
+        ref_img_tensor = ref_img_tensor.unsqueeze(0)
+        ref_mask_tensor1 = torch.tensor(np.array(ref_mask1)/255.0)
+        ref_mask_tensor2 = torch.tensor(np.array(ref_mask2)/255.0)
+        ref_mask_tensor = torch.cat([ref_mask_tensor1.unsqueeze(0),ref_mask_tensor2.unsqueeze(0)],dim=0)
+        ref_mask_tensor = F.interpolate(ref_mask_tensor.unsqueeze(0).float(), ref_img_tensor.size()[-2:], mode='nearest')
+    
     with torch.no_grad():
         GFSAM.clear()
-        GFSAM.set_reference(ref_img_tensor.unsqueeze(0).unsqueeze(0).to(device), ref_mask_tensor.to(device))
+        GFSAM.set_reference(ref_img_tensor.to(device), ref_mask_tensor.to(device))
         GFSAM.set_target(target_img_tensor.unsqueeze(0).to(device))
         pred_mask, point_tuple = GFSAM.predict()
 
@@ -75,8 +86,10 @@ demo = gr.Interface(
     description="<div align='center'> \
         [NeurIPS 2024 Spotlight✨] Bridge the Points: Graph-based Few-shot Segment Anything Semantically \
         </div>", 
-    inputs=[gr.Image(label="Reference Image", type="pil"), 
-     gr.Image(label="Reference Mask", type="pil", image_mode="L"), 
+    inputs=[gr.Image(label="Reference Image1", type="pil"), 
+     gr.Image(label="Reference Mask1", type="pil", image_mode="L"), 
+     gr.Image(label="Reference Image2", type="pil"), 
+     gr.Image(label="Reference Mask2", type="pil", image_mode="L"),
      gr.Image(label="Target Image", type="pil")], 
     outputs=[gr.Image(label="Prediction"), 
              gr.Image(label="Points")],
