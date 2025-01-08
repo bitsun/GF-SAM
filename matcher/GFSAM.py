@@ -121,14 +121,26 @@ class GFSAM:
             prob_masks = torch.zeros_like(pred_masks)
         else:
             tar_masks = torch.cat(tar_masks_list, dim=0)
-
+            # sim_map_large = F.interpolate(sim_map.unsqueeze(0), size=(1024, 1024), mode='bilinear')
+            # mask_quality = []
+            # for idx, tar_mask in enumerate(tar_masks):
+            #     mask_quality.append(sim_map_large[0,0][tar_mask[0]].mean().item())
             components_weak, labels_weak, components_strong, labels_strong = self.mask_cluster(tar_masks, coord_f, sim_map_hot)
 
             fgbg_com_labels, fgbg_labels, pseudo_masks, cls_scores = self.cluster_classification(tar_masks, labels_weak, components_weak, 
                                                                                      mean_sim_map * mean_sim_map, neg_mean_sim_map * mean_sim_map_half, coord_f)
 
             selected_points = self.point_consistency_dis(tar_feats_sem, tar_masks, labels_weak, components_weak, fgbg_labels, coord_f)
-
+            mask_quality = []
+            labels_weak_tensor = torch.as_tensor(labels_weak, device=self.device, dtype=torch.long)
+            for component in range(components_weak):
+                com_args = torch.where(torch.logical_and(labels_weak_tensor == component, selected_points==1))[0]
+                if len(com_args) == 0:
+                    mask_quality.append(0)
+                    continue
+                union_mask = (tar_masks[com_args].sum(dim=0) > 0).float()
+                union_mask = F.interpolate(union_mask.unsqueeze(0), (self.encoder_feat_size, self.encoder_feat_size), mode='nearest').squeeze(0)>0
+                mask_quality.append(sim_map[0][union_mask[0]].mean().item())
             pred_masks, prob_masks = self.triplet_selection_b(tar_masks, labels_weak, selected_points, mean_sim_map, coord_f, cls_scores)
 
         return pred_masks, (coord_xy, selected_points)
