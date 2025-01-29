@@ -92,7 +92,7 @@ class FewShotsSegmenter:
             make_normalize_transform(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)),
         ])
         self.nshot = nshot
-        self.references = {}
+        self.references:dict[str,Reference] = {}
         self.transform = transforms.Compose([
             transforms.Resize(size=input_size),
             transforms.ToTensor()
@@ -154,7 +154,47 @@ class FewShotsSegmenter:
             self.predictor.set_image(img_np)
         return self.predictor.features # 1,c,h,w
     
+    def compute_sim_ref2query(self,tar_feats,ref_feats, similarities,query_mask,reference_masks,reference_labels)->float:
+        """
+        compute the similarity from reference mask to the query mask,
+        then take the mean of the similarity value to verify the quality of query mask again
+        via ref2query similarity
+        """
+        reference_masks = reference_masks.to(self.device)
+        #ref_feats = ref_feats.to(self.device)
+        #tar_feats1 = torch.masked_select(tar_feats,query_mask_small>0).reshape((-1,tar_feats.shape[-1]))
+        #tar_feats1_norm = tar_feats1/torch.norm(tar_feats1,p=2,dim=1,keepdim=True)
+        
+        sp_sz2 = similarities[0].shape[-1]
+        sp_sz = int(math.sqrt(sp_sz2))
+        query_mask_small = F.interpolate(query_mask.unsqueeze(0), size=(sp_sz, sp_sz), mode='bilinear', align_corners=True)
+        query_mask_small = query_mask_small.flatten(2).transpose(-1, -2) # [bs, h*w, 1]
+        
+        #tmp_mask = F.interpolate(tmp_mask, size=(sp_sz, sp_sz), mode='bilinear', align_corners=True)
+        mask_qualities = np.zeros(len(similarities))
+        for st, _ in enumerate(similarities):
+            #for each reference point
+            ref_mask = reference_masks[st].unsqueeze(0)
+            ref_mask = F.interpolate(ref_mask, size=(sp_sz, sp_sz), mode='bilinear', align_corners=True)
+            ref_mask = ref_mask.flatten(2).transpose(-1, -2)
+            #ref_feats1 = torch.masked_select(ref_feats[st],ref_mask>0).reshape((-1,ref_feats.shape[-1]))
+            #ref_feats1_norm = ref_feats1/torch.norm(ref_feats1,p=2,dim=1,keepdim=True)
+            #max_sims = torch.zeros(ref_feats1_norm.shape[0])
+            #mean_sims = torch.zeros_like(max_sims)
+            #for n1 in range(ref_feats1_norm.shape[0]):
+            #    tmp = (tar_feats1_norm*ref_feats1_norm[n1]).sum(-1)
+            #    max_sims[n1] = torch.max(tmp)
+            #    mean_sims[n1] = torch.mean(tmp)
+            similarity = similarities[st].permute(0,2,1)*query_mask_small # [bs, h*w, h*w]
+            mask_qualities[st]= ((torch.sum(similarity.max(1)[0]*ref_mask.squeeze(2))/torch.sum(ref_mask)).item())
+            #print(st,reference_labels,(torch.sum(similarity.mean(1)*ref_mask.squeeze(2))/torch.sum(ref_mask)).item())
+        #compute the mean value of mask_qualities
+        return np.mean(mask_qualities)
     def generate_prior(self, query_feat_high, supp_feat_high, s_mask):
+        """
+        generate prior similarity maps
+        s_mask is the masks of supporting or reference images
+        """
         bsize, sp_sz2, _= query_feat_high.size()[:]
         sp_sz = int(math.sqrt(sp_sz2))
 
@@ -178,7 +218,7 @@ class FewShotsSegmenter:
         corr_query_mask = torch.cat(corr_query_mask_list, 1)
         corr_query_mask = corr_query_mask.mean(1)
         cos_similarity = torch.cat(cos_similarity_list, 1).mean(1)
-        return corr_query_mask, cos_similarity
+        return corr_query_mask, cos_similarity,similarities
     
     def segment(self, img:Image.Image):
         """
@@ -197,8 +237,8 @@ class FewShotsSegmenter:
             ref_feats_sem = reference.feats.to(self.device)
             ref_masks = reference.masks.to(self.device)
             # positive and negative similarity maps
-            neg_sim_map, neg_mean_sim_map = self.generate_prior(tar_feats_sem, ref_feats_sem, 1-ref_masks)
-            sim_map, mean_sim_map = self.generate_prior(tar_feats_sem, ref_feats_sem, ref_masks)
+            neg_sim_map, neg_mean_sim_map,neg_sim_mat = self.generate_prior(tar_feats_sem, ref_feats_sem, 1-ref_masks)
+            sim_map, mean_sim_map,sim_mat = self.generate_prior(tar_feats_sem, ref_feats_sem, ref_masks)
 
             # mid-value of similarity map
             mean_sim_map_half = (mean_sim_map.max() + mean_sim_map.min()) / 2
@@ -239,13 +279,20 @@ class FewShotsSegmenter:
                         selected_points[com_args] = 3
                         continue
                     dense_union_mask = (tar_masks[com_args].sum(dim=0) > 0).float()
+                    #dense_union_mask is a candidate mask in query image
+                    #now we can reuse the similarity matrix to compute the mean similarity between this query
+                    #mask and all the reference masks
                     union_mask = F.interpolate(dense_union_mask.unsqueeze(0), (self.encoder_feat_size, self.encoder_feat_size), mode='nearest').squeeze(0)>0
                     mask_quality = sim_map[0][union_mask[0]].mean().item()
                     mask_quality_list.append(mask_quality)
                     if(mask_quality<self.mask_th):
                         selected_points[com_args] = 3
                         continue
-                    result_masks.append((dense_union_mask>0,class_id, mask_quality))
+                    mask_quality1 = self.compute_sim_ref2query(tar_feats_sem,reference.feats, sim_mat, dense_union_mask,reference.masks,reference.label)
+                    if(mask_quality1<self.mask_th):
+                        selected_points[com_args] = 4
+                        continue
+                    result_masks.append((dense_union_mask>0,class_id, (mask_quality+mask_quality1)/2))
                    
                 #pred_masks, prob_masks = self.triplet_selection_b(tar_masks, labels_weak, selected_points, mean_sim_map, coord_f, cls_scores)
         #compare all the masks to check if this masks to check if this mask should be added to the final result
@@ -400,7 +447,7 @@ class FewShotsSegmenter:
             union_mask = (tar_masks[com_args].sum(dim=0) > 0).float()
             union_mask = F.interpolate(union_mask.unsqueeze(0), (self.encoder_feat_size, self.encoder_feat_size), mode='bilinear', align_corners=False).squeeze(0)
             union_masks.append(union_mask)
-            _, union_similarity = self.generate_prior(tar_feats_sem, tar_feats_sem, union_mask.unsqueeze(0))
+            _, union_similarity,_ = self.generate_prior(tar_feats_sem, tar_feats_sem, union_mask.unsqueeze(0))
             union_similarities.append(union_similarity)
         union_similarities = torch.cat(union_similarities, dim=0) # nc, h, w
 

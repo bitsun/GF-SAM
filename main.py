@@ -56,7 +56,7 @@ def main():
     segmenter = FewShotsSegmenter(dinov2_size=args.dinov2_size, 
                                   dinov2_weights=args.dinov2_weights, 
                                   sam_size=args.sam_size, sam_weights=args.sam_weights,
-                                    input_size=args.img_size, nshot=args.nshot,mask_th=0.6)
+                                    input_size=args.img_size, nshot=args.nshot,mask_th=0.5)
     #read sub dirs in ref-dir
     ref_dirs = [os.path.join(args.ref_dir, d) for d in os.listdir(args.ref_dir)]
     for ref_dir in ref_dirs:
@@ -80,6 +80,7 @@ def main():
         segmenter.add_reference(images, masks, os.path.basename(ref_dir))
     
     #now make query
+    #query_img = Image.open("C:\\Users\\bliu\\Documents\\helmet.jpg")
     query_img = Image.open("E:\\Data\\TVCheck\\test\\helmet\\000000805.jpg")
     mask = segmenter.segment(query_img)
     #draw mask on image
