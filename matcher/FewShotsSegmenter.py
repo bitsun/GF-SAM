@@ -22,16 +22,26 @@ from segment_anything.utils.amg import (
 from scipy.sparse import csgraph
 import PIL.Image as Image
 from .GFSAM import GFSAM
+import cv2
 class Reference:
     def __init__(self, img_tensors:torch.Tensor, masks:torch.Tensor, label:str,feats:torch.Tensor):
         """
         a reference for some label, if it is a nshot reference, img_tensors and masks are lists of tensors or
         a tensor with shape (nshot, c, h, w)
         """
-        self.img_tensors = img_tensors.to(torch.device("cpu"))
-        self.masks = masks.to(torch.device("cpu"))
+        if img_tensors is not None:
+            self.img_tensors = img_tensors.to(torch.device("cpu"))
+        else:
+            self.img_tensors = None
+        if masks is not None:
+            self.masks = masks.to(torch.device("cpu"))
+        else:
+            self.masks = None
         self.label = label
-        self.feats = feats.to(torch.device("cpu"))
+        if feats is not None:
+            self.feats = feats.to(torch.device("cpu"))
+        else:
+            self.feats = None
 
 class FewShotsSegmenter:
     def __init__(
@@ -98,7 +108,8 @@ class FewShotsSegmenter:
             transforms.ToTensor()
         ])
         self.mask_th = mask_th
-
+        
+    @torch.no_grad()
     def extract_img_feats(self,image_tensors:torch.Tensor):
         """
         extract dinov2 features from image tensors
@@ -115,10 +126,12 @@ class FewShotsSegmenter:
         """
         add a nshot reference images and masks
         """
+        if len(imgs)==0:
+            self.references[label] = Reference(None, None, label,None)
+            return
         if label in self.references:
             raise ValueError("ref label {} already exists".format(label))
-        assert len(imgs) == self.nshot
-        assert len(masks) == self.nshot
+        assert len(imgs) == len(masks)
         ref_img_tensors = []
         ref_mask_tensors = []
         for i in range(self.nshot):
@@ -144,14 +157,17 @@ class FewShotsSegmenter:
         feats = self.extract_img_feats(ref_img_tensors)
         self.references[label] = Reference(ref_img_tensors, ref_mask_tensors, label,feats)
     
-    def extract_sam_feats(self, img:Image.Image):
+    @torch.no_grad()
+    def extract_sam_feats(self, img:np.ndarray)->torch.Tensor:
         """
         extract sam features from image
+        img is torch image tensor with values between 0 and 1
         """
-        img_np = img.mul(255).byte()
-        img_np = img_np.squeeze(0).permute(1, 2, 0).cpu().numpy()
-        with torch.no_grad():
-            self.predictor.set_image(img_np)
+        #img_np = img.mul(255).byte()
+        #img_np = img.squeeze(0).permute(1, 2, 0).cpu().numpy()
+        assert isinstance(img, np.ndarray) and img.ndim == 3 and img.shape[2] == 3
+        rz_img = cv2.resize(img, self.input_size)
+        self.predictor.set_image(rz_img,image_format="BGR")
         return self.predictor.features # 1,c,h,w
     
     def compute_sim_ref2query(self,tar_feats,ref_feats, similarities,query_mask,reference_masks,reference_labels)->float:
@@ -220,20 +236,25 @@ class FewShotsSegmenter:
         cos_similarity = torch.cat(cos_similarity_list, 1).mean(1)
         return corr_query_mask, cos_similarity,similarities
     
-    def segment(self, img:Image.Image):
+    def segment(self, img:np.ndarray)->torch.Tensor:
         """
         segment a single image  based on the references
         """
-        tar_img_tensor = self.transform(img)
-        with torch.no_grad():
-            #extract sam features from target image
-            tar_feats = self.extract_sam_feats(tar_img_tensor)
-            #extract dinov2 features from target image
-            tar_feats_sem = self.extract_img_feats(tar_img_tensor.unsqueeze(0))
+        #assert isinstance(img, np.ndarray) and img.ndim == 3 and img.shape[2] == 3
+        #img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        #tar_img_tensor = img_rgb.transpose(2,0,1)/255.0
+        #tar_img_tensor = self.transform(img).unsqueeze(0)
+        tar_img_tensor = torch.from_numpy(cv2.dnn.blobFromImage(img,1/255.0,self.input_size,swapRB=True))
+        #extract sam features from target image
+        tar_feats = self.extract_sam_feats(img)
+        #extract dinov2 features from target image
+        tar_feats_sem = self.extract_img_feats(tar_img_tensor)
         result_masks = []
         #for each reference label, segment the image
         for k,reference in enumerate(self.references.values()):
             class_id = k+1
+            if reference.feats is None or reference.masks is None:
+                continue
             ref_feats_sem = reference.feats.to(self.device)
             ref_masks = reference.masks.to(self.device)
             # positive and negative similarity maps
@@ -311,14 +332,14 @@ class FewShotsSegmenter:
         for i in sorted(mask2del, reverse=True):
             del result_masks[i]
         if len(result_masks) == 0:
-            return
+            return torch.zeros((img.shape[0], img.shape[1])).float()
         final_mask = torch.zeros_like(result_masks[0][0]).float()
         prob_mask = torch.zeros_like(final_mask)
         for mask,class_id,mask_quality in result_masks:
             final_mask[(mask>0.5) & (mask_quality>prob_mask)] = class_id
             prob_mask = torch.max(prob_mask,mask_quality*mask)
         #interpolate final mask
-        final_mask = F.interpolate(final_mask.unsqueeze(0).float(), (img.height, img.width), mode='nearest').squeeze()       
+        final_mask = F.interpolate(final_mask.unsqueeze(0).float(), (img.shape[0], img.shape[1]), mode='nearest').squeeze()       
         return final_mask
     
     def generate_sam_masks(self, tar_feats, coord_xy, coord_labels):

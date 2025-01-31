@@ -81,11 +81,14 @@ def main():
     
     #now make query
     #query_img = Image.open("C:\\Users\\bliu\\Documents\\helmet.jpg")
-    query_img = Image.open("E:\\Data\\TVCheck\\test\\helmet\\000000805.jpg")
+    #image_tensor1 = segmenter.transform(query_img)
+    query_img = cv2.imread("C:\\Users\\bliu\\Documents\\helmet.jpg")
+    #query_img = Image.open ("E:\\Data\\TVCheck\\test\\helmet\\000000805.jpg")
+    #tar_img_tensor = torch.from_numpy(cv2.dnn.blobFromImage(query_img,1/255.0,segmenter.input_size,swapRB=True))
     mask = segmenter.segment(query_img)
     #draw mask on image
     #swap r and b channel
-    query_img = np.array(query_img)[:,:,::-1]
+    #query_img = np.array(query_img)[:,:,::-1]
     result = blend_mask_on_image(query_img, mask)
     cv2.imshow("result",result)    
     cv2.waitKey(0)
