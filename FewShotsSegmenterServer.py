@@ -72,18 +72,27 @@ class FewShotsSegmenterService(pb2_grpc.FewShotSegmenterService):
         return pb2.SegmentMapResponse(org_img_width= image_bgr.shape[1],
                                       org_img_height= image_bgr.shape[0],
                                        map = mask_image,error_message="")
-
 import json
 def serve(max_workers,port,config_path):  
     with open(config_path) as f:
         config = json.load(f)
-    segmenter_service =FewShotsSegmenterService(int(config["nshot"]),
+    if "nshot" in config:
+        nshot = int(config["nshot"])
+    else:
+        nshot = 1
+    segmenter_service =FewShotsSegmenterService(nshot=nshot,
                                                 dinov2_weights=config["dinov2_weights"],
                                                 dinov2_size="vit_large",
                                                 sam_size="vit_h",
                                                 sam_weights=config["sam_weights"],
-                                                ref_dir=config["ref_dir"],
-                                                mask_quality_th=float(config["mask_th"]))
+                                                ref_dir=config["ref_dir"])
+    if "do_postprocess" in config:
+        do_postprocess = bool(config["do_postprocess"])
+        segmenter_service.segmenter.do_post_process = do_postprocess
+    
+    if "mask_th" in config:
+        mask_quality_th = float(config["mask_th"])
+        segmenter_service.segmenter.mask_quality_th = mask_quality_th
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=max_workers))
     pb2_grpc.add_FewShotSegmenterServiceServicer_to_server(segmenter_service,server)
     server.add_insecure_port('[::]:{}'.format(port))

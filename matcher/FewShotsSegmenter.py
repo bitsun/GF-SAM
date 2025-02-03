@@ -53,6 +53,7 @@ class FewShotsSegmenter:
             input_size=1024,
             nshot=1,
             mask_th=0.6,
+            do_post_process = False
     ):
         # DINOv2, Image Encoder
         dinov2_kwargs = dict(
@@ -108,6 +109,7 @@ class FewShotsSegmenter:
             transforms.ToTensor()
         ])
         self.mask_th = mask_th
+        self.do_post_process = do_post_process
         
     @torch.no_grad()
     def extract_img_feats(self,image_tensors:torch.Tensor):
@@ -336,12 +338,38 @@ class FewShotsSegmenter:
         final_mask = torch.zeros_like(result_masks[0][0]).float()
         prob_mask = torch.zeros_like(final_mask)
         for mask,class_id,mask_quality in result_masks:
+            if self.do_post_process:
+                mask = self.remove_small_isolated_masks(mask)
             final_mask[(mask>0.5) & (mask_quality>prob_mask)] = class_id
             prob_mask = torch.max(prob_mask,mask_quality*mask)
         #interpolate final mask
         final_mask = F.interpolate(final_mask.unsqueeze(0).float(), (img.shape[0], img.shape[1]), mode='nearest').squeeze()       
         return final_mask
     
+    def remove_small_isolated_masks(self,mask:np.ndarray | torch.Tensor)->np.ndarray | torch.Tensor:
+        is_torch_tensor = isinstance(mask, torch.Tensor)   
+        if is_torch_tensor:
+            device = mask.device
+            result_mask = mask.squeeze().cpu().numpy().astype(np.uint8)
+        else:
+            result_mask = mask.copy()
+        _, labels, stats, _= cv2.connectedComponentsWithStats(result_mask,connectivity=8,ltype=cv2.CV_32S)
+        #get the toal size of forground pixels
+        if labels.shape[0] == 0:
+            return result_mask
+        #get the biggest foreground mask by sorting, and return both the sorted list and the list of indices
+        sorted_with_indices = sorted(enumerate(stats[1:]), key=lambda x: x[1][4],reverse=True)
+        #remove small isolated masks
+        max_area = sorted_with_indices[0][1][4]
+        for label,area in sorted_with_indices:
+            #because label 0 as background was ignored in the sorting, so we need to add 1 to label
+            label += 1
+            if area[4] < 0.1*max_area:
+                result_mask[labels == label] = 0
+        #any mask
+        if is_torch_tensor:
+            return torch.tensor(result_mask).to(device)
+        return result_mask
     def generate_sam_masks(self, tar_feats, coord_xy, coord_labels):
         """Generate masks using SAM"""
         tar_masks_list = []
