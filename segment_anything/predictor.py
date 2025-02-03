@@ -31,10 +31,11 @@ class SamPredictor:
 
     def set_image(
         self,
-        image: np.ndarray,
+        image: np.ndarray | torch.Tensor,
         mask: np.ndarray = None,
         image_format: str = "RGB",
-        cal_image=True
+        cal_image=True,
+        preprocess=True
     ) -> None:
         """
         Calculates the image embeddings for the provided image, allowing
@@ -49,14 +50,20 @@ class SamPredictor:
             "RGB",
             "BGR",
         ], f"image_format must be in ['RGB', 'BGR'], is {image_format}."
-        if image_format != self.model.image_format:
+        if image_format != self.model.image_format and preprocess:
             image = image[..., ::-1]
 
         # Transform the image to the form expected by the model
-        input_image = self.transform.apply_image(image)
-        input_image_torch = torch.as_tensor(input_image, device=self.device)
-        input_image_torch = input_image_torch.permute(2, 0, 1).contiguous()[None, :, :, :]
-
+        if preprocess and isinstance(image, np.ndarray):
+          input_image = self.transform.apply_image(image)
+          input_image_torch = torch.as_tensor(input_image, device=self.device)
+          input_image_torch = input_image_torch.permute(2, 0, 1).contiguous()[None, :, :, :]
+          image_shape = image.shape[:2]
+        elif isinstance(image, torch.Tensor):
+          input_image_torch = image
+          image_shape = image.shape[-2:]
+        else:
+            raise ValueError("Image must be a numpy array or torch tensor.")
         # Transform the mask to the form expected by the model
         input_mask_torch = None
         if mask is not None:
@@ -64,7 +71,7 @@ class SamPredictor:
           input_mask_torch = torch.as_tensor(input_mask, device=self.device).unsqueeze(-1)
           input_mask_torch = input_mask_torch.permute(2, 0, 1).contiguous()[None, :, :, :]
 
-        input_mask = self.set_torch_image(input_image_torch, image.shape[:2], transformed_mask=input_mask_torch)
+        input_mask = self.set_torch_image(input_image_torch, image_shape, transformed_mask=input_mask_torch,preprocess=preprocess)
         return input_mask
           
 
@@ -74,7 +81,8 @@ class SamPredictor:
         transformed_image: torch.Tensor,
         original_image_size: Tuple[int, ...],
         transformed_mask: torch.Tensor = None,
-        cal_image=True
+        cal_image=True,
+        preprocess = True,
     ) -> None:
         """
         Calculates the image embeddings for the provided image, allowing

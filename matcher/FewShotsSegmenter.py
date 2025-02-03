@@ -110,6 +110,9 @@ class FewShotsSegmenter:
         ])
         self.mask_th = mask_th
         self.do_post_process = do_post_process
+        self.half = False
+        if self.half:
+            self.encoder = self.encoder.half()
         
     @torch.no_grad()
     def extract_img_feats(self,image_tensors:torch.Tensor):
@@ -120,8 +123,12 @@ class FewShotsSegmenter:
         image_tensors = image_tensors.to(self.device)
         with torch.no_grad():
             image_tensors = self.encoder_transform(image_tensors)
+            if self.half:
+                image_tensors = image_tensors.half()
             feats = self.encoder.forward_features(image_tensors)["x_prenorm"][:, 1:]
             feats = F.normalize(feats, dim=1, p=2) # normalize for cosine similarity
+        if self.half:
+            feats = feats.float()
         return feats
     
     def add_reference(self, imgs:list[Image.Image], masks:list[Image.Image],label:str):
@@ -160,16 +167,22 @@ class FewShotsSegmenter:
         self.references[label] = Reference(ref_img_tensors, ref_mask_tensors, label,feats)
     
     @torch.no_grad()
-    def extract_sam_feats(self, img:np.ndarray)->torch.Tensor:
+    def extract_sam_feats(self, img:np.ndarray|torch.Tensor)->torch.Tensor:
         """
         extract sam features from image
         img is torch image tensor with values between 0 and 1
         """
         #img_np = img.mul(255).byte()
         #img_np = img.squeeze(0).permute(1, 2, 0).cpu().numpy()
-        assert isinstance(img, np.ndarray) and img.ndim == 3 and img.shape[2] == 3
-        rz_img = cv2.resize(img, self.input_size)
-        self.predictor.set_image(rz_img,image_format="BGR")
+        #assert isinstance(img, np.ndarray) and img.ndim == 3 and img.shape[2] == 3
+        if isinstance(img,np.ndarray):
+            preprocess = True
+            rz_img = cv2.resize(img, self.input_size)
+            self.predictor.set_image(rz_img,image_format="BGR")
+        else:
+            preprocess = False
+            input = img
+            self.predictor.set_image(input,preprocess=preprocess)
         return self.predictor.features # 1,c,h,w
     
     def compute_sim_ref2query(self,tar_feats,ref_feats, similarities,query_mask,reference_masks,reference_labels)->float:
@@ -247,8 +260,9 @@ class FewShotsSegmenter:
         #tar_img_tensor = img_rgb.transpose(2,0,1)/255.0
         #tar_img_tensor = self.transform(img).unsqueeze(0)
         tar_img_tensor = torch.from_numpy(cv2.dnn.blobFromImage(img,1/255.0,self.input_size,swapRB=True))
+        tar_img_tensor = tar_img_tensor.to(self.device)
         #extract sam features from target image
-        tar_feats = self.extract_sam_feats(img)
+        tar_feats = self.extract_sam_feats(tar_img_tensor)
         #extract dinov2 features from target image
         tar_feats_sem = self.extract_img_feats(tar_img_tensor)
         result_masks = []
