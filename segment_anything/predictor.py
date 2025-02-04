@@ -58,6 +58,7 @@ class SamPredictor:
           input_image = self.transform.apply_image(image)
           input_image_torch = torch.as_tensor(input_image, device=self.device)
           input_image_torch = input_image_torch.permute(2, 0, 1).contiguous()[None, :, :, :]
+          input_image_torch = input_image_torch.float() / 255.0
           image_shape = image.shape[:2]
         elif isinstance(image, torch.Tensor):
           input_image_torch = image

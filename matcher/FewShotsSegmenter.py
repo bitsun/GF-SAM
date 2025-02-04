@@ -18,7 +18,8 @@ from dinov2.data.transforms import MaybeToTensor, make_normalize_transform
 from segment_anything.utils.amg import (
     batch_iterator, 
 )
-
+from efficientvit.sam_model_zoo import create_efficientvit_sam_model
+from efficientvit.models.efficientvit.sam import EfficientViTSamPredictor
 from scipy.sparse import csgraph
 import PIL.Image as Image
 from .GFSAM import GFSAM
@@ -75,9 +76,11 @@ class FewShotsSegmenter:
         dinov2.eval()
         
         # SAM
-        sam = sam_model_registry[sam_size](checkpoint=sam_weights)
+        #sam = sam_model_registry[sam_size](checkpoint=sam_weights)
+        sam = create_efficientvit_sam_model(name="efficientvit-sam-xl0",pretrained=True,weight_url="E:\\Data\\Model\\SegmentAnything\\efficientvit_sam_xl0.pt")
         sam.to(device=self.device)
-        predictor = SamPredictor(sam)
+        #predictor = SamPredictor(sam)
+        predictor = EfficientViTSamPredictor(sam)
         self.encoder = dinov2
         self.predictor = predictor
 
@@ -178,6 +181,7 @@ class FewShotsSegmenter:
         if isinstance(img,np.ndarray):
             preprocess = True
             rz_img = cv2.resize(img, self.input_size)
+            #rz_img = rz_img/255.0
             self.predictor.set_image(rz_img,image_format="BGR")
         else:
             preprocess = False
@@ -432,7 +436,11 @@ class FewShotsSegmenter:
 
         # translate all points to coordinates
         points_f = np.argwhere(sim_map_hot.T > 0)
-        points = self.predictor.transform.apply_coords(points_f, sim_map.shape[-2:])
+        #points1 = self.predictor.transform.apply_coords(points_f, sim_map.shape[-2:])
+        points = np.zeros((points_f.shape[0], 2), dtype=np.float32)
+        for idx, (x, y) in enumerate(points_f):
+            points[idx, 0] = x / sim_map.shape[-1]*self.input_size[0]
+            points[idx, 1] = y / sim_map.shape[-2]*self.input_size[1]
         coord_labels = np.ones(points.shape[0], dtype=np.int32)
 
         return points, coord_labels, sim_map_hot, points_f
