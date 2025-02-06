@@ -39,7 +39,8 @@ message SegmentMapResponse{
 	int32 org_img_width = 1;
 	int32 org_img_height = 2;
 	Image map = 3; //segmentation map
-	string error_message = 4;
+	Image scores = 4; //confidence map
+	string error_message = 5;
 }
 
 service FewShotSegmenterService {

@@ -66,12 +66,16 @@ class FewShotsSegmenterService(pb2_grpc.FewShotSegmenterService):
         #get the rgb image
         image_bgr = np.frombuffer(request.data, np.uint8)
         image_bgr = np.reshape(image_bgr,(request.height,request.width,request.num_channels))
-        mask = self.segmenter.segment(image_bgr)
+        mask,prob_map = self.segmenter.segment(image_bgr)
         mask = mask.squeeze().detach().cpu().numpy().astype(np.uint8)
+        prob_map = prob_map.squeeze().detach().cpu().numpy().astype(np.float32)
         mask_image = pb2.Image(height=mask.shape[0],width=mask.shape[1],num_channels=1,data=mask.tobytes())
+        prob_map_image = pb2.Image(height=prob_map.shape[0],width=prob_map.shape[1],num_channels=1,data=prob_map.tobytes())
         return pb2.SegmentMapResponse(org_img_width= image_bgr.shape[1],
                                       org_img_height= image_bgr.shape[0],
-                                       map = mask_image,error_message="")
+                                       map = mask_image,
+                                       scores = prob_map_image,
+                                       error_message="")
 import json
 def serve(max_workers,port,config_path):  
     with open(config_path) as f:
@@ -85,7 +89,8 @@ def serve(max_workers,port,config_path):
                                                 dinov2_size="vit_large",
                                                 sam_size="vit_h",
                                                 sam_weights=config["sam_weights"],
-                                                ref_dir=config["ref_dir"])
+                                                ref_dir=config["ref_dir"],
+                                                mask_quality_th=0.5)
     if "do_postprocess" in config:
         do_postprocess = bool(config["do_postprocess"])
         segmenter_service.segmenter.do_post_process = do_postprocess

@@ -24,7 +24,7 @@ _sym_db = _symbol_database.Default()
 
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\rservice.proto\x12\x06Ivitec\"\x06\n\x04Void\"3\n\x0bIntResponse\x12\r\n\x05value\x18\x01 \x01(\x05\x12\x15\n\rerror_message\x18\x02 \x01(\t\"J\n\x05Image\x12\r\n\x05width\x18\x01 \x01(\x05\x12\x0e\n\x06height\x18\x02 \x01(\x05\x12\x14\n\x0cnum_channels\x18\x03 \x01(\x05\x12\x0c\n\x04\x64\x61ta\x18\x04 \x01(\x0c\":\n\x12StringListResponse\x12\r\n\x05value\x18\x01 \x03(\t\x12\x15\n\rerror_message\x18\x02 \x01(\t\"v\n\x12SegmentMapResponse\x12\x15\n\rorg_img_width\x18\x01 \x01(\x05\x12\x16\n\x0eorg_img_height\x18\x02 \x01(\x05\x12\x1a\n\x03map\x18\x03 \x01(\x0b\x32\r.Ivitec.Image\x12\x15\n\rerror_message\x18\x04 \x01(\t2\xbe\x01\n\x17\x46\x65wShotSegmenterService\x12\x39\n\x0bget_classes\x12\x0c.Ivitec.Void\x1a\x1a.Ivitec.StringListResponse\"\x00\x12\x30\n\tget_nshot\x12\x0c.Ivitec.Void\x1a\x13.Ivitec.IntResponse\"\x00\x12\x36\n\x07segment\x12\r.Ivitec.Image\x1a\x1a.Ivitec.SegmentMapResponse\"\x00\x62\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\rservice.proto\x12\x06Ivitec\"\x06\n\x04Void\"3\n\x0bIntResponse\x12\r\n\x05value\x18\x01 \x01(\x05\x12\x15\n\rerror_message\x18\x02 \x01(\t\"J\n\x05Image\x12\r\n\x05width\x18\x01 \x01(\x05\x12\x0e\n\x06height\x18\x02 \x01(\x05\x12\x14\n\x0cnum_channels\x18\x03 \x01(\x05\x12\x0c\n\x04\x64\x61ta\x18\x04 \x01(\x0c\":\n\x12StringListResponse\x12\r\n\x05value\x18\x01 \x03(\t\x12\x15\n\rerror_message\x18\x02 \x01(\t\"\x95\x01\n\x12SegmentMapResponse\x12\x15\n\rorg_img_width\x18\x01 \x01(\x05\x12\x16\n\x0eorg_img_height\x18\x02 \x01(\x05\x12\x1a\n\x03map\x18\x03 \x01(\x0b\x32\r.Ivitec.Image\x12\x1d\n\x06scores\x18\x04 \x01(\x0b\x32\r.Ivitec.Image\x12\x15\n\rerror_message\x18\x05 \x01(\t2\xbe\x01\n\x17\x46\x65wShotSegmenterService\x12\x39\n\x0bget_classes\x12\x0c.Ivitec.Void\x1a\x1a.Ivitec.StringListResponse\"\x00\x12\x30\n\tget_nshot\x12\x0c.Ivitec.Void\x1a\x13.Ivitec.IntResponse\"\x00\x12\x36\n\x07segment\x12\r.Ivitec.Image\x1a\x1a.Ivitec.SegmentMapResponse\"\x00\x62\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
@@ -39,8 +39,8 @@ if not _descriptor._USE_C_DESCRIPTORS:
   _globals['_IMAGE']._serialized_end=160
   _globals['_STRINGLISTRESPONSE']._serialized_start=162
   _globals['_STRINGLISTRESPONSE']._serialized_end=220
-  _globals['_SEGMENTMAPRESPONSE']._serialized_start=222
-  _globals['_SEGMENTMAPRESPONSE']._serialized_end=340
-  _globals['_FEWSHOTSEGMENTERSERVICE']._serialized_start=343
-  _globals['_FEWSHOTSEGMENTERSERVICE']._serialized_end=533
+  _globals['_SEGMENTMAPRESPONSE']._serialized_start=223
+  _globals['_SEGMENTMAPRESPONSE']._serialized_end=372
+  _globals['_FEWSHOTSEGMENTERSERVICE']._serialized_start=375
+  _globals['_FEWSHOTSEGMENTERSERVICE']._serialized_end=565
 # @@protoc_insertion_point(module_scope)

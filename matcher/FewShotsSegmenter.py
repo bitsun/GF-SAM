@@ -361,8 +361,9 @@ class FewShotsSegmenter:
             final_mask[(mask>0.5) & (mask_quality>prob_mask)] = class_id
             prob_mask = torch.max(prob_mask,mask_quality*mask)
         #interpolate final mask
-        final_mask = F.interpolate(final_mask.unsqueeze(0).float(), (img.shape[0], img.shape[1]), mode='nearest').squeeze()       
-        return final_mask
+        final_mask = F.interpolate(final_mask.unsqueeze(0).float(), (img.shape[0], img.shape[1]), mode='nearest').squeeze()  
+        prob_mask = F.interpolate(prob_mask.unsqueeze(0).float(), (img.shape[0], img.shape[1]), mode='nearest').squeeze()            
+        return final_mask,prob_mask
     
     def remove_small_isolated_masks(self,mask:np.ndarray | torch.Tensor)->np.ndarray | torch.Tensor:
         is_torch_tensor = isinstance(mask, torch.Tensor)   
