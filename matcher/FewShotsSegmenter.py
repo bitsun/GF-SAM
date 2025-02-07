@@ -1,3 +1,5 @@
+from .logger import get_logger
+logger = get_logger()
 from os import path
 
 import torch
@@ -7,8 +9,7 @@ from torchvision import transforms
 
 import numpy as np
 import math
-from scipy.optimize import linear_sum_assignment
-import matplotlib.pyplot as plt
+#import matplotlib.pyplot as plt
 
 from segment_anything import sam_model_registry, SamPredictor
 from segment_anything import SamAutomaticMaskGenerator
@@ -22,7 +23,7 @@ from efficientvit.sam_model_zoo import create_efficientvit_sam_model
 from efficientvit.models.efficientvit.sam import EfficientViTSamPredictor
 from scipy.sparse import csgraph
 import PIL.Image as Image
-from .GFSAM import GFSAM
+#from .GFSAM import GFSAM
 import cv2
 class Reference:
     def __init__(self, img_tensors:torch.Tensor, masks:torch.Tensor, label:str,feats:torch.Tensor):
@@ -77,7 +78,7 @@ class FewShotsSegmenter:
         
         # SAM
         #sam = sam_model_registry[sam_size](checkpoint=sam_weights)
-        sam = create_efficientvit_sam_model(name="efficientvit-sam-xl0",pretrained=True,weight_url="E:\\Data\\Model\\SegmentAnything\\efficientvit_sam_xl0.pt")
+        sam = create_efficientvit_sam_model(name="efficientvit-sam-xl0",pretrained=True,weight_url="/home/bliu/Network/Robin2/User/bliu/Dataset/Model/SAM/efficientvit_sam_xl0.pt")
         sam.to(device=self.device)
         #predictor = SamPredictor(sam)
         predictor = EfficientViTSamPredictor(sam)
@@ -94,11 +95,11 @@ class FewShotsSegmenter:
         self.encoder_img_size = img_size
         self.encoder_feat_size = feat_size
 
-        self.gf = GFSAM(
-        encoder=dinov2,
-        generator=predictor,
-        device=self.device
-        )
+        # self.gf = GFSAM(
+        # encoder=dinov2,
+        # generator=predictor,
+        # device=self.device
+        # )
         # transforms for image encoder
         self.encoder_transform = transforms.Compose([
             MaybeToTensor(),
@@ -352,7 +353,7 @@ class FewShotsSegmenter:
         for i in sorted(mask2del, reverse=True):
             del result_masks[i]
         if len(result_masks) == 0:
-            return torch.zeros((img.shape[0], img.shape[1])).float()
+            return torch.zeros((img.shape[0], img.shape[1])).float(),torch.zeros((img.shape[0], img.shape[1])).float()
         final_mask = torch.zeros_like(result_masks[0][0]).float()
         prob_mask = torch.zeros_like(final_mask)
         for mask,class_id,mask_quality in result_masks:

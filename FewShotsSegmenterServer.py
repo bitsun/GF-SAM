@@ -1,3 +1,7 @@
+import logging
+from matcher.logger import get_logger,config_log_file,config_logger
+logger = get_logger()
+logger.setLevel(logging.INFO)
 import argparse
 import grpc
 from concurrent import futures
@@ -8,7 +12,6 @@ from logging.handlers import TimedRotatingFileHandler
 import numpy as np
 import os
 import PIL.Image as Image
-logger:logging.Logger = logging.getLogger(__name__)
 from matcher.FewShotsSegmenter import FewShotsSegmenter
 class FewShotsSegmenterService(pb2_grpc.FewShotSegmenterService):
     def __init__(self,nshot,ref_dir,dinov2_size,dinov2_weights,sam_size,sam_weights,mask_quality_th):
@@ -36,6 +39,7 @@ class FewShotsSegmenterService(pb2_grpc.FewShotSegmenterService):
             if len(ref_imgs) < self.nshot:
                 logger.warning(f"Not enough images in reference directory {ref_dir}")
             ref_imgs = ref_imgs[:min(len(ref_imgs),self.nshot)]
+            logger.info("adding {} reference images in  folder {}".format(min(len(ref_imgs),self.nshot),ref_dir))
             images = []
             masks = []
             for i, ref_img_name in enumerate(ref_imgs):
@@ -102,7 +106,7 @@ def serve(max_workers,port,config_path):
     pb2_grpc.add_FewShotSegmenterServiceServicer_to_server(segmenter_service,server)
     server.add_insecure_port('[::]:{}'.format(port))
     server.start()
-    logging.info("few shots segmenter server started, listening port {}".format(port))
+    logger.info("few shots segmenter server started, listening port {}".format(port))
     server.wait_for_termination()  
 
 if __name__ == '__main__':
@@ -111,12 +115,5 @@ if __name__ == '__main__':
     parser.add_argument('--port',type=int,default=50051,help='port number')
     parser.add_argument('--config-path',type=str,required=True,help='few shots segmenter config path')
     args = parser.parse_args()
-    formatter = logging.Formatter('%(asctime)s %(name)s %(levelname)s %(message)s')
-    handler = TimedRotatingFileHandler('few_shots_segmenter_{}.log'.format(args.port), 
-                                   when='midnight',
-                                   backupCount=10)
-    handler.setFormatter(formatter)
-    logger = logging.getLogger(__name__)
-    logger.addHandler(handler)
-    logger.setLevel(logging.INFO)
+    config_log_file('few_shots_segmenter_{}.log'.format(args.port))
     serve(args.max_workers,args.port,args.config_path)
