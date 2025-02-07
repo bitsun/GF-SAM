@@ -49,7 +49,7 @@ def visualize_points_on_image(image, coords_xy, coords_labels):
         draw.ellipse((x-3, y-3, x+3, y+3), fill=(255, 0, 0) if label != 1 else (0, 255, 0))
     return image
         
-def process(ref_img1, ref_mask1,ref_img2,ref_mask2,ref_img3,ref_mask3,ref_img4,ref_mask4,ref_img5,ref_mask5,target_img):
+def process(mask_th,ref_img1, ref_mask1,ref_img2,ref_mask2,ref_img3,ref_mask3,ref_img4,ref_mask4,ref_img5,ref_mask5,target_img):
     target_img_tensor = transform(target_img)
     ref_img_tensor = []
     ref_mask_tensor = []
@@ -89,6 +89,7 @@ def process(ref_img1, ref_mask1,ref_img2,ref_mask2,ref_img3,ref_mask3,ref_img4,r
     ref_mask_tensor = torch.cat(ref_mask_tensor,dim=0)
     ref_mask_tensor = F.interpolate(ref_mask_tensor.unsqueeze(0).float(), ref_img_tensor.size()[-2:], mode='nearest')
     with torch.no_grad():
+        GFSAM.mask_th = mask_th
         GFSAM.clear()
         GFSAM.set_reference(ref_img_tensor.to(device), ref_mask_tensor.to(device))
         GFSAM.set_target(target_img_tensor.unsqueeze(0).to(device))
@@ -106,7 +107,9 @@ demo = gr.Interface(
     description="<div align='center'> \
         [NeurIPS 2024 Spotlight✨] Bridge the Points: Graph-based Few-shot Segment Anything Semantically \
         </div>", 
-    inputs=[gr.Image(label="Reference Image1", type="pil"), 
+    inputs=[
+        gr.Number(label="mask quality threshold"),
+        gr.Image(label="Reference Image1", type="pil"), 
      gr.Image(label="Reference Mask1", type="pil", image_mode="L"), 
      gr.Image(label="Reference Image2", type="pil"), 
      gr.Image(label="Reference Mask2", type="pil", image_mode="L"),

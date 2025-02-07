@@ -31,12 +31,13 @@ mask_pallet =[0, 0, 0,
 def blend_mask_on_image(image, mask):
     mask = mask.squeeze().cpu().numpy()
     max_class_id = int(np.max(mask))
-    mask_img = np.zeros((mask.shape[-2],mask.shape[-1],3)).astype(np.uint8)
+    mask_img = image.copy() #np.zeros((mask.shape[-2],mask.shape[-1],3)).astype(np.uint8)
     for i in range(max_class_id):
         class_id = i+1
         if class_id == 0:
             continue
         mask_img[mask == class_id] = mask_pallet[3*class_id:3*class_id+3]
+    cv2.imshow("mask",mask_img)
     #blend image with cv2
     result = cv2.addWeighted(image, 0.5, mask_img, 0.5, 0)
     return result
@@ -82,9 +83,10 @@ def main():
     #now make query
     #query_img = Image.open("C:\\Users\\bliu\\Documents\\helmet.jpg")
     #image_tensor1 = segmenter.transform(query_img)
-    query_img = cv2.imread("C:\\Users\\bliu\\Documents\\helmet.jpg")
-    #query_img = Image.open ("E:\\Data\\TVCheck\\test\\helmet\\000000805.jpg")
+    #query_img = cv2.imread("C:\\Users\\bliu\\Documents\\helmet.jpg")
+    query_img = cv2.imread ("E:\\Data\\TVCheck\\test\\pitch\\000000020.jpg")
     #tar_img_tensor = torch.from_numpy(cv2.dnn.blobFromImage(query_img,1/255.0,segmenter.input_size,swapRB=True))
+    segmenter.do_post_process = True
     mask = segmenter.segment(query_img)
     #draw mask on image
     #swap r and b channel

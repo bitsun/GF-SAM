@@ -13,6 +13,9 @@ import matplotlib.pyplot as plt
 
 from segment_anything import sam_model_registry, SamPredictor
 from segment_anything import SamAutomaticMaskGenerator
+from efficientvit.sam_model_zoo import create_efficientvit_sam_model
+from efficientvit.models.efficientvit.sam import EfficientViTSamPredictor
+
 from dinov2.models import vision_transformer as vits
 import dinov2.utils.utils as dinov2_utils
 from dinov2.data.transforms import MaybeToTensor, make_normalize_transform
@@ -93,13 +96,12 @@ class GFSAM:
         self.tar_img_np = img_np
 
     def predict(self):
-
         tar_feats = self.extract_sam_feats()
         ref_feats_sem, tar_feats_sem = self.extract_img_feats()
 
         # positive and negative similarity maps
-        neg_sim_map, neg_mean_sim_map = self.generate_prior(tar_feats_sem, ref_feats_sem, 1-self.ref_masks)
-        sim_map, mean_sim_map = self.generate_prior(tar_feats_sem, ref_feats_sem, self.ref_masks)
+        neg_sim_map, neg_mean_sim_map,_ = self.generate_prior(tar_feats_sem, ref_feats_sem, 1-self.ref_masks)
+        sim_map, mean_sim_map,sim_mat = self.generate_prior(tar_feats_sem, ref_feats_sem, self.ref_masks)
 
         # mid-value of similarity map
         mean_sim_map_half = (mean_sim_map.max() + mean_sim_map.min()) / 2
@@ -131,20 +133,69 @@ class GFSAM:
                                                                                      mean_sim_map * mean_sim_map, neg_mean_sim_map * mean_sim_map_half, coord_f)
 
             selected_points = self.point_consistency_dis(tar_feats_sem, tar_masks, labels_weak, components_weak, fgbg_labels, coord_f)
-            mask_quality = []
+            mask_quality_list = []
             labels_weak_tensor = torch.as_tensor(labels_weak, device=self.device, dtype=torch.long)
             for component in range(components_weak):
                 com_args = torch.where(torch.logical_and(labels_weak_tensor == component, selected_points==1))[0]
                 if len(com_args) == 0:
-                    mask_quality.append(0)
+                    mask_quality_list.append(0)
+                    selected_points[com_args] = 3
                     continue
-                union_mask = (tar_masks[com_args].sum(dim=0) > 0).float()
-                union_mask = F.interpolate(union_mask.unsqueeze(0), (self.encoder_feat_size, self.encoder_feat_size), mode='nearest').squeeze(0)>0
-                mask_quality.append(sim_map[0][union_mask[0]].mean().item())
+                dense_union_mask = (tar_masks[com_args].sum(dim=0) > 0).float()
+                #dense_union_mask is a candidate mask in query image
+                #now we can reuse the similarity matrix to compute the mean similarity between this query
+                #mask and all the reference masks
+                union_mask = F.interpolate(dense_union_mask.unsqueeze(0), (self.encoder_feat_size, self.encoder_feat_size), mode='nearest').squeeze(0)>0
+                mask_quality = sim_map[0][union_mask[0]].mean().item()
+                mask_quality_list.append(mask_quality)
+                if(mask_quality<self.mask_th):
+                    selected_points[com_args] = 3
+                    continue
+                mask_quality1 = self.compute_sim_ref2query(tar_feats_sem,ref_feats_sem, sim_mat, dense_union_mask,self.ref_masks)
+                if(mask_quality1<self.mask_th):
+                    selected_points[com_args] = 4
+                    continue
+                
             pred_masks, prob_masks = self.triplet_selection_b(tar_masks, labels_weak, selected_points, mean_sim_map, coord_f, cls_scores)
 
         return pred_masks, (coord_xy, selected_points)
     
+    def compute_sim_ref2query(self,tar_feats,ref_feats, similarities,query_mask,reference_masks)->float:
+        """
+        compute the similarity from reference mask to the query mask,
+        then take the mean of the similarity value to verify the quality of query mask again
+        via ref2query similarity
+        """
+        reference_masks = reference_masks.to(self.device)
+        #ref_feats = ref_feats.to(self.device)
+        #tar_feats1 = torch.masked_select(tar_feats,query_mask_small>0).reshape((-1,tar_feats.shape[-1]))
+        #tar_feats1_norm = tar_feats1/torch.norm(tar_feats1,p=2,dim=1,keepdim=True)
+        
+        sp_sz2 = similarities[0].shape[-1]
+        sp_sz = int(math.sqrt(sp_sz2))
+        query_mask_small = F.interpolate(query_mask.unsqueeze(0), size=(sp_sz, sp_sz), mode='bilinear', align_corners=True)
+        query_mask_small = query_mask_small.flatten(2).transpose(-1, -2) # [bs, h*w, 1]
+        
+        #tmp_mask = F.interpolate(tmp_mask, size=(sp_sz, sp_sz), mode='bilinear', align_corners=True)
+        mask_qualities = np.zeros(len(similarities))
+        for st, _ in enumerate(similarities):
+            #for each reference point
+            ref_mask = reference_masks[st].unsqueeze(0)
+            ref_mask = F.interpolate(ref_mask, size=(sp_sz, sp_sz), mode='bilinear', align_corners=True)
+            ref_mask = ref_mask.flatten(2).transpose(-1, -2)
+            #ref_feats1 = torch.masked_select(ref_feats[st],ref_mask>0).reshape((-1,ref_feats.shape[-1]))
+            #ref_feats1_norm = ref_feats1/torch.norm(ref_feats1,p=2,dim=1,keepdim=True)
+            #max_sims = torch.zeros(ref_feats1_norm.shape[0])
+            #mean_sims = torch.zeros_like(max_sims)
+            #for n1 in range(ref_feats1_norm.shape[0]):
+            #    tmp = (tar_feats1_norm*ref_feats1_norm[n1]).sum(-1)
+            #    max_sims[n1] = torch.max(tmp)
+            #    mean_sims[n1] = torch.mean(tmp)
+            similarity = similarities[st].permute(0,2,1)*query_mask_small # [bs, h*w, h*w]
+            mask_qualities[st]= ((torch.sum(similarity.max(1)[0]*ref_mask.squeeze(2))/torch.sum(ref_mask)).item())
+            #print(st,reference_labels,(torch.sum(similarity.mean(1)*ref_mask.squeeze(2))/torch.sum(ref_mask)).item())
+        #compute the mean value of mask_qualities
+        return np.mean(mask_qualities)
     def triplet_selection_b(self, tar_masks, cluster_labels, coord_se_labels, mean_sim_map, coord_f, cls_scores):
         """Select and merge the masks"""
         coord_f = torch.as_tensor(coord_f, device=self.device, dtype=torch.long)
@@ -160,11 +211,11 @@ class GFSAM:
                 prob_masks = torch.max(prob_masks, curr_prob_mask)
         pred_masks = (pred_masks > 0).float()
 
-        if pred_masks.sum() == 0:
-            cls_scores[coord_se_labels != 2] = 0
-            _, max_cls_scores_arg = cls_scores.max(dim=0)
-            pred_masks += tar_masks[max_cls_scores_arg]
-            prob_masks = (sim_map_rsz * tar_masks[max_cls_scores_arg]).sum() / tar_masks[max_cls_scores_arg].sum() * tar_masks[max_cls_scores_arg]
+        # if pred_masks.sum() == 0:
+        #     cls_scores[coord_se_labels != 2] = 0
+        #     _, max_cls_scores_arg = cls_scores.max(dim=0)
+        #     pred_masks += tar_masks[max_cls_scores_arg]
+        #     prob_masks = (sim_map_rsz * tar_masks[max_cls_scores_arg]).sum() / tar_masks[max_cls_scores_arg].sum() * tar_masks[max_cls_scores_arg]
 
         return pred_masks, prob_masks
 
@@ -218,7 +269,7 @@ class GFSAM:
             union_mask = (tar_masks[com_args].sum(dim=0) > 0).float()
             union_mask = F.interpolate(union_mask.unsqueeze(0), (self.encoder_feat_size, self.encoder_feat_size), mode='bilinear', align_corners=False).squeeze(0)
             union_masks.append(union_mask)
-            _, union_similarity = self.generate_prior(tar_feats_sem, tar_feats_sem, union_mask.unsqueeze(0))
+            _, union_similarity,_ = self.generate_prior(tar_feats_sem, tar_feats_sem, union_mask.unsqueeze(0))
             union_similarities.append(union_similarity)
         union_similarities = torch.cat(union_similarities, dim=0) # nc, h, w
 
@@ -287,7 +338,11 @@ class GFSAM:
 
         # translate all points to coordinates
         points_f = np.argwhere(sim_map_hot.T > 0)
-        points = self.predictor.transform.apply_coords(points_f, sim_map.shape[-2:])
+        #points = self.predictor.transform.apply_coords(points_f, sim_map.shape[-2:])
+        points = np.zeros((points_f.shape[0], 2), dtype=np.float32)
+        for idx, (x, y) in enumerate(points_f):
+            points[idx, 0] = x / sim_map.shape[-1]*self.input_size[0]
+            points[idx, 1] = y / sim_map.shape[-2]*self.input_size[1]
         coord_labels = np.ones(points.shape[0], dtype=np.int32)
 
         return points, coord_labels, sim_map_hot, points_f
@@ -334,7 +389,7 @@ class GFSAM:
         corr_query_mask = torch.cat(corr_query_mask_list, 1)
         corr_query_mask = corr_query_mask.mean(1)
         cos_similarity = torch.cat(cos_similarity_list, 1).mean(1)
-        return corr_query_mask, cos_similarity
+        return corr_query_mask, cos_similarity,similarities
 
     def generate_pixelwise_comparison(self, query_feat_high, supp_feat_high):
         pixelwise_coms = []
@@ -397,9 +452,11 @@ def build_model(args):
     dinov2.to(device=args.device)
 
     # SAM
-    sam = sam_model_registry[args.sam_size](checkpoint=args.sam_weights)
+    #sam = sam_model_registry[args.sam_size](checkpoint=args.sam_weights)
+    sam = create_efficientvit_sam_model(name="efficientvit-sam-xl0",pretrained=True,weight_url="E:\\Data\\Model\\SegmentAnything\\efficientvit_sam_xl0.pt")
     sam.to(device=args.device)
-    predictor = SamPredictor(sam)
+    #predictor = SamPredictor(sam)
+    predictor = EfficientViTSamPredictor(sam)
 
     return GFSAM(
         encoder=dinov2,
