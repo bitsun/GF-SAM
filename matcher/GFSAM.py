@@ -11,10 +11,16 @@ import math
 from scipy.optimize import linear_sum_assignment
 import matplotlib.pyplot as plt
 
-from segment_anything import sam_model_registry, SamPredictor
-from segment_anything import SamAutomaticMaskGenerator
-from efficientvit.sam_model_zoo import create_efficientvit_sam_model
-from efficientvit.models.efficientvit.sam import EfficientViTSamPredictor
+#from segment_anything import sam_model_registry, SamPredictor
+#from segment_anything import SamAutomaticMaskGenerator
+#from efficientvit.sam_model_zoo import create_efficientvit_sam_model
+#from efficientvit.models.efficientvit.sam import EfficientViTSamPredictor
+#from sam2.build_sam import build_sam2
+#from sam2.sam2_image_predictor import SAM2ImagePredictor
+from utils.registry import SAMPREDICTOR_REGISTRY
+from matcher.sam1predictor import SAM1Predictor
+from matcher.efficientvitsam_predictor import EfficientViTSAMPredictor
+from matcher.sam2predictor import SAM2Predictor
 
 from dinov2.models import vision_transformer as vits
 import dinov2.utils.utils as dinov2_utils
@@ -354,14 +360,20 @@ class GFSAM:
             in_points = torch.as_tensor(points, device=self.device, dtype=torch.int)
             in_labels = torch.as_tensor(labels, device=self.device, dtype=torch.int)
 
-            tar_masks, scores, logits, _ = self.predictor.predict_torch(
-                point_coords=in_points[:, None, :],
-                point_labels=in_labels[:, None],
-                # mask_input=mask_inputs,
-                features=tar_feats,
-                multimask_output=False, 
-            )
-            tar_masks = tar_masks > self.predictor.model.mask_threshold
+            # tar_masks, scores, logits, _ = self.predictor.predict_torch(
+            #     point_coords=in_points[:, None, :],
+            #     point_labels=in_labels[:, None],
+            #     # mask_input=mask_inputs,
+            #     features=tar_feats,
+            #     multimask_output=False, 
+            # )
+            # tar_masks,_,_ = self.predictor.predict(point_coords=in_points[:, None, :],
+            #                        point_labels=in_labels[:, None],
+            #                        multimask_output=False)
+            # #tar_masks = tar_masks > self.predictor.model.mask_threshold,
+            # tar_masks = tar_masks>0
+            # tar_masks = torch.from_numpy(tar_masks).to(self.device)
+            tar_masks = self.predictor.predict_mask(tar_feats, in_points, in_labels)
             tar_masks_list.append(tar_masks)
         return tar_masks_list
 
@@ -405,9 +417,8 @@ class GFSAM:
         return pixelwise_coms
     
     def extract_sam_feats(self):
-        self.predictor.set_image(self.tar_img_np)
-        tar_feats = self.predictor.features # 1, c, h, w
-
+        tar_feats = self.predictor.encode_image(self.tar_img_np)
+        #tar_feats = self.predictor._features["image_embed"] # 1, c, h, w
         return tar_feats
     
     def extract_img_feats(self):
@@ -453,10 +464,17 @@ def build_model(args):
 
     # SAM
     #sam = sam_model_registry[args.sam_size](checkpoint=args.sam_weights)
-    sam = create_efficientvit_sam_model(name="efficientvit-sam-xl0",pretrained=True,weight_url="E:\\Data\\Model\\SegmentAnything\\efficientvit_sam_xl0.pt")
-    sam.to(device=args.device)
+    #sam = create_efficientvit_sam_model(name="efficientvit-sam-xl0",pretrained=True,weight_url="E:\\Data\\Model\\SegmentAnything\\efficientvit_sam_xl0.pt")
+    #model_cfg = "D:\\code\\Research\\GF-SAM\\matcher\\sam2.1_hiera_l.yaml"
+    #sam = build_sam2(model_cfg, "E:\\Data\\Model\\SegmentAnything\\sam2.1_hiera_large.pt")
+    #sam.to(device=args.device)
     #predictor = SamPredictor(sam)
-    predictor = EfficientViTSamPredictor(sam)
+    #predictor = EfficientViTSamPredictor(sam)
+    #predictor = SAM2ImagePredictor(sam)
+    import json
+    with open(args.config, "r") as f:
+        cfg = json.load(f)
+    predictor = SAMPREDICTOR_REGISTRY.create(cfg['sam'])
 
     return GFSAM(
         encoder=dinov2,

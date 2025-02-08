@@ -1,5 +1,5 @@
 import logging
-from matcher.logger import get_logger,config_log_file,config_logger
+from utils.logger import get_logger,config_log_file,config_logger
 logger = get_logger()
 logger.setLevel(logging.INFO)
 import argparse

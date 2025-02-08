@@ -13,9 +13,10 @@ parser = argparse.ArgumentParser(description='GFSAM Pytorch Implementation for O
 
 parser.add_argument('--img-size', type=int, default=1024)
 parser.add_argument('--dinov2-size', type=str, default="vit_large")
-parser.add_argument('--sam-size', type=str, default="vit_h")
+parser.add_argument("--config" ,type=str, default="config file of same model")
+# parser.add_argument('--sam-size', type=str, default="vit_h")
 parser.add_argument('--dinov2-weights', type=str, default="models/dinov2_vitl14_pretrain.pth")
-parser.add_argument('--sam-weights', type=str, default="models/sam_vit_h_4b8939.pth")
+#parser.add_argument('--sam-weights', type=str, default="models/sam_vit_h_4b8939.pth")
 
 
 args = parser.parse_args()
