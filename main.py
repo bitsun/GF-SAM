@@ -48,15 +48,14 @@ def main():
     parser.add_argument('--img-size', type=int, default=1024)
     parser.add_argument('--dinov2-size', type=str, default="vit_large")
     parser.add_argument('--dinov2-weights', type=str, default="models/dinov2_vitl14_pretrain.pth")
-    parser.add_argument('--sam-size', type=str, default="vit_h")
-    parser.add_argument('--sam-weights', type=str, default="models/sam_vit_h_4b8939.pth")
+    parser.add_argument('--sam-config', type=str, default="config file for sam model")
 
     args = parser.parse_args()
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     # device = torch.device("cpu")
     segmenter = FewShotsSegmenter(dinov2_size=args.dinov2_size, 
                                   dinov2_weights=args.dinov2_weights, 
-                                  sam_size=args.sam_size, sam_weights=args.sam_weights,
+                                  sam_config=args.sam_config,
                                     input_size=args.img_size, nshot=args.nshot,mask_th=0.5)
     #read sub dirs in ref-dir
     ref_dirs = [os.path.join(args.ref_dir, d) for d in os.listdir(args.ref_dir)]
@@ -87,7 +86,7 @@ def main():
     query_img = cv2.imread ("E:\\Data\\TVCheck\\test\\pitch\\000000020.jpg")
     #tar_img_tensor = torch.from_numpy(cv2.dnn.blobFromImage(query_img,1/255.0,segmenter.input_size,swapRB=True))
     segmenter.do_post_process = True
-    mask = segmenter.segment(query_img)
+    mask,prob = segmenter.segment(query_img)
     #draw mask on image
     #swap r and b channel
     #query_img = np.array(query_img)[:,:,::-1]

@@ -1,12 +1,12 @@
 from utils.logger import get_logger
 logger = get_logger()
 from os import path
-
+from utils.registry import SAMPREDICTOR_REGISTRY
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torchvision import transforms
-
+import json
 import numpy as np
 import math
 #import matplotlib.pyplot as plt
@@ -50,8 +50,7 @@ class FewShotsSegmenter:
             self,
             dinov2_size="vit_large",
             dinov2_weights="models/dinov2_vitl14_pretrain.pth",
-            sam_size="vit_h",
-            sam_weights="models/sam_vit_h_4b8939.pth",
+            sam_config="config file of same model",
             input_size=1024,
             nshot=1,
             mask_th=0.6,
@@ -77,11 +76,14 @@ class FewShotsSegmenter:
         dinov2.eval()
         
         # SAM
+        with open(sam_config, "r") as f:
+            sam_cfg = json.load(f)
+        predictor = SAMPREDICTOR_REGISTRY.create(sam_cfg['sam'])
         #sam = sam_model_registry[sam_size](checkpoint=sam_weights)
-        sam = create_efficientvit_sam_model(name="efficientvit-sam-xl0",pretrained=True,weight_url="/home/bliu/Network/Robin2/User/bliu/Dataset/Model/SAM/efficientvit_sam_xl0.pt")
-        sam.to(device=self.device)
+        #sam = create_efficientvit_sam_model(name="efficientvit-sam-xl0",pretrained=True,weight_url="/home/bliu/Network/Robin2/User/bliu/Dataset/Model/SAM/efficientvit_sam_xl0.pt")
+        #sam.to(device=self.device)
         #predictor = SamPredictor(sam)
-        predictor = EfficientViTSamPredictor(sam)
+        #predictor = EfficientViTSamPredictor(sam)
         self.encoder = dinov2
         self.predictor = predictor
 
@@ -183,12 +185,13 @@ class FewShotsSegmenter:
             preprocess = True
             rz_img = cv2.resize(img, self.input_size)
             #rz_img = rz_img/255.0
-            self.predictor.set_image(rz_img,image_format="BGR")
+            #self.predictor.set_image(rz_img,image_format="BGR")
+            feats = self.predictor.encode_image(rz_img)
         else:
             preprocess = False
             input = img
-            self.predictor.set_image(input,preprocess=preprocess)
-        return self.predictor.features # 1,c,h,w
+            feats = self.predictor.encode_image(input,preprocess=preprocess)
+        return feats # 1,c,h,w
     
     def compute_sim_ref2query(self,tar_feats,ref_feats, similarities,query_mask,reference_masks,reference_labels)->float:
         """
@@ -267,7 +270,7 @@ class FewShotsSegmenter:
         tar_img_tensor = torch.from_numpy(cv2.dnn.blobFromImage(img,1/255.0,self.input_size,swapRB=True))
         tar_img_tensor = tar_img_tensor.to(self.device)
         #extract sam features from target image
-        tar_feats = self.extract_sam_feats(tar_img_tensor)
+        tar_feats = self.extract_sam_feats(img)
         #extract dinov2 features from target image
         tar_feats_sem = self.extract_img_feats(tar_img_tensor)
         result_masks = []
@@ -397,14 +400,15 @@ class FewShotsSegmenter:
             in_points = torch.as_tensor(points, device=self.device, dtype=torch.int)
             in_labels = torch.as_tensor(labels, device=self.device, dtype=torch.int)
 
-            tar_masks, scores, logits, _ = self.predictor.predict_torch(
-                point_coords=in_points[:, None, :],
-                point_labels=in_labels[:, None],
-                # mask_input=mask_inputs,
-                features=tar_feats,
-                multimask_output=False, 
-            )
-            tar_masks = tar_masks > self.predictor.model.mask_threshold
+            # tar_masks, scores, logits, _ = self.predictor.predict_torch(
+            #     point_coords=in_points[:, None, :],
+            #     point_labels=in_labels[:, None],
+            #     # mask_input=mask_inputs,
+            #     features=tar_feats,
+            #     multimask_output=False, 
+            # )
+            # tar_masks = tar_masks > self.predictor.model.mask_threshold
+            tar_masks = self.predictor.predict_mask(tar_feats, in_points, in_labels)
             tar_masks_list.append(tar_masks)
         return tar_masks_list
     

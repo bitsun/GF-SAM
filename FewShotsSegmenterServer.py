@@ -8,7 +8,6 @@ from concurrent import futures
 import service_pb2 as pb2
 import service_pb2_grpc as pb2_grpc
 import logging
-from logging.handlers import TimedRotatingFileHandler
 import numpy as np
 import os
 import PIL.Image as Image
